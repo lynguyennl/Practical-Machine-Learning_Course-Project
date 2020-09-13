@@ -1,0 +1,134 @@
+---
+title: "practical machine learning - course project"
+author: "Ly Nguyen"
+date: "9/13/2020"
+output: 
+ md_document:
+    variant: markdown_github
+---
+
+# Summary 
+This project uses the pmltraining data set to predict the manner that the subjets exercise, which is defined by the variable "classe" in the training set. I will apply different prediction models that we have learnt throughout the course and applied the one with the highest level of accuracy to the test set to predict the manner of exercise. 
+
+# Data Loading and Cleaning 
+``` {r echo=TRUE, cache=TRUE}
+pmltraining <- read.csv("pml-training.csv", sep=",", header=TRUE)
+pmltesting <- read.csv(file="pml-testing.csv", sep=",", header=TRUE)
+```
+
+Let's take a look at the training data set 
+``` {r echo=TRUE, cache=TRUE}
+head(pmltraining)
+```
+
+We can see that there are a few variables with NA values and #DIV/0! values, which are not very helpful when we build our model. We also see that the first 7 columns do not contain predictor variables but identifier and timestamp variables, we can also remove them from our cleaned dataset. 
+``` {r echo=TRUE, cache=TRUE}
+# Remove all columns with NA values 
+pmltraining <- pmltraining[ ,colSums(is.na(pmltraining))==0]
+
+# Remove columns with "#DIV/0!" values
+cols <- colSums(mapply("==", "#DIV/0!", pmltraining))
+pmltraining <- pmltraining[ ,which(cols == 0)]
+
+# Remove the first 7 columns
+pmltraining <- pmltraining[, -c(1:7)]
+```
+
+Let's take a look at our cleaned training dataset 
+```{r echo=TRUE, cache=TRUE}
+head(pmltraining)
+dim(pmltraining) 
+```
+
+There are now 53 variables and 19,622 observations. 
+
+We will do the same with the testing set 
+```{r echo=TRUE, cache=TRUE}
+choose <- names(pmltesting) %in% names(pmltraining)
+pmltesting <- pmltesting[choose]
+dim(pmltesting)
+```
+
+Our testing data set has **52** variables *(without the outcome: classe)* and 20 observations. 
+
+Divide training dataset into training set and validation set. 
+For ease of running the models, my cutoff percentage is **70% train, 30% validation**. 
+``` {r echo=TRUE, cache=TRUE}
+library(caret)
+partition <- createDataPartition(pmltraining$classe, p=0.7, list=FALSE)
+train <- pmltraining[partition, ]
+val <- pmltraining[-partition, ]
+dim(train)
+dim(val)
+```
+
+## Tree Classification Model 
+We have multiple variables that can be used to predict the outcome classe, so first, i will fit a Tree Classification Model into the train data. 
+``` {r echo=TRUE, cache=TRUE}
+fitTrees <- train(classe~., method="rpart", data=train)
+```
+
+Let's plot the Tree graph to see how the groups are classified. 
+``` {r echo=TRUE, cache=TRUE}
+library(rattle)
+fancyRpartPlot(fitTrees$finalModel)
+```
+
+Let's validate the model on the validation data to find out how well it performs. 
+``` {r echo=TRUE, cache=TRUE}
+predTrees <- predict(fitTrees, val)
+accuracyTrees <- confusionMatrix(predict(fitTrees, val), factor(val$classe))$overall[[1]]
+accuracyTrees 
+
+```
+
+The accuracy rate is **`r accuracyTrees`** , hence the out-of-sample error is **`r 1 - accuracyTrees`**, which is quite high. We may want to apply another model. 
+
+## Random Forest Model
+Because we have both continuous and discrete variables, I will fit a Random Forest Model to our training data. 
+``` {r echo=TRUE, cache=TRUE}
+fitRF <- train(classe~., method="rf", data=train, 
+               trControl = trainControl(method = 'cv', number = 5), na.action = na.omit)
+```
+
+Let's validate the performance of this model on the validation set. 
+``` {r echo=TRUE, cache=TRUE}
+predRF <- predict(fitRF, val)
+accuracyRF <- confusionMatrix(predict(fitRF, val), factor(val$classe))$overall[[1]]
+accuracyRF 
+```
+
+The accuracy rate is **`r accuracyRF`**, hence the out-of-sample error is **`r 1 - accuracyRF`**, which is very low. Although this may be due to overfitting, the model definitely performs better than the Tree Classification Model. 
+
+Below is the 20 most important variables as predictors of classe. 
+``` {r echo=TRUE, cache=TRUE}
+varImp(fitRF)
+```
+
+## Generalized Boosted Model
+Because we have multiple weak predictors in our dataset, I will also try fitting a generalized boosted model to weigh them, add them up and derive an overall stronger predictor. 
+``` {r echo=TRUE, cache=TRUE}
+fitGBM <- train(classe~., method="gbm", data=train, verbose = FALSE)
+```
+
+Let's validate the performance of this model on the validation set. 
+``` {r echo=TRUE, cache=TRUE}
+predGBM <- predict(fitGBM, val) 
+accuracyGBM <- confusionMatrix(predict(fitGBM, val), factor(val$classe))$overall[[1]]
+accuracyGBM
+```
+
+The accuracy rate is **`r accuracyGBM`**, hence the out-of-sample error is **`r 1 - accuracyGBM`**, which is quite low but still higher than the Random Forest Model. Hence, we will choose the **Random Forest Model** to predict on our test data set. 
+
+
+## Predict on Test Set 
+``` {r echo=TRUE, cache=TRUE}
+predTest <- predict(fitRF,pmltesting)
+predTest 
+```
+
+
+The predicted result will be used in the **Course Project Prediction Quiz**
+
+## Conclusion 
+- After fitting 3 models on the training data set and use validation data set to evaluate their performance, I decide to choose the Random Forest Model to predict the classe value on the test data set. 
